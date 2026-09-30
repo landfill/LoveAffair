@@ -1,25 +1,17 @@
 import * as THREE from 'three';
-import { Voxels, VS, solid, rnd, shade } from './voxel';
-import { skyTexture, paintingTexture, scoreTexture } from './pixel';
+import { Voxels, VS, rnd, shade } from './voxel';
+import { buildPiano, setKeyLook, type PianoInfo, type KeyObj } from './piano';
+import { skyTexture, paintingTexture } from './pixel';
 
 export const RX0 = -52, RX1 = 52, RZ0 = -40, RZ1 = 40;
-const isBlack = (m: number) => [1, 3, 6, 8, 10].includes(m % 12);
 const v3 = (x: number, y: number, z: number) => new THREE.Vector3(x * VS, y * VS, z * VS);
 
-export interface KeyObj { pivot: THREE.Group; mesh: THREE.Mesh; black: boolean; z: number; press: number; }
-export interface PianoInfo {
-  keys: Map<number, KeyObj>;
-  W: number;
-  keyZ: (midi: number) => number;
-  /** 트레블 쪽 곡선 측면의 z(복셀 단위) */
-  edgeZ: (x: number) => number;
-  seat: THREE.Vector3;
-}
+export type { PianoInfo, KeyObj };
+export { setKeyLook };
 export const SUN_DIR = new THREE.Vector3(0.24, -0.6, 0.76).normalize();
 
 export function buildWorld(scene: THREE.Scene, lo: number, hi: number) {
-  const walls = new Voxels();
-  const bodies = new Voxels();
+  const walls = new Voxels(2);
 
   // ─── 바닥(마루) + 디오라마 받침
   for (let x = RX0; x < RX1 + 4; x++) for (let z = RZ0; z < RZ1; z++) {
@@ -28,7 +20,7 @@ export function buildWorld(scene: THREE.Scene, lo: number, hi: number) {
     const base = [0xc09060, 0xb8875a, 0xc79a68][(row * 7 + 3) % 3];
     walls.set(x, -2, z, seam ? shade(base, 0.78) : base, 0.045);
   }
-  walls.box(RX0 - 2, -8, RZ0 - 2, RX1 + 4, -2, RZ1, 0x4a3226, 0.05);
+  walls.box(RX0 - 2, -6, RZ1 - 2, RX1 + 4, -2, RZ1, 0x4a3226, 0.05); walls.box(RX1 + 2, -6, RZ0 - 2, RX1 + 4, -2, RZ1, 0x4a3226, 0.05); walls.box(RX0 - 2, -6, RZ0 - 2, RX0, -2, RZ1, 0x4a3226, 0.05);
 
   // ─── 러그
   for (let x = -27; x < 27; x++) for (let z = -30; z < 21; z++) {
@@ -127,10 +119,12 @@ export function buildWorld(scene: THREE.Scene, lo: number, hi: number) {
   const plant = (cx: number, cz: number, h: number) => {
     walls.box(cx - 3, -1, cz - 3, cx + 3, 5, cz + 3, 0xb5643c, 0.06); walls.box(cx - 4, 5, cz - 4, cx + 4, 6, cz + 4, 0xc4744a);
     walls.box(cx - 3, 6, cz - 3, cx + 3, 7, cz + 3, 0x4a3226);
-    for (let i = 0; i < 70; i++) {
-      const a = rnd() * 6.28, r = rnd() * 7, y = 7 + rnd() * h;
-      walls.box(cx + Math.cos(a) * r * (0.4 + y / (h + 7) * 0.9), y, cz + Math.sin(a) * r * (0.4 + y / (h + 7) * 0.9), cx + Math.cos(a) * r * 1.3 + 2, y + 2, cz + Math.sin(a) * r * 1.3 + 2, [0x4f8a44, 0x67a052, 0x3f7a3a][i % 3], 0.1);
+    for (let i = 0; i < 260; i++) {
+      const a = rnd() * 6.28, y = 7 + rnd() * h, spread = 1.2 + Math.sin(Math.min(1, (y - 7) / h) * 2.6) * 5.2 * (0.5 + rnd() * 0.6);
+      const long = rnd() < 0.5;
+      walls.ellipsoid(cx + Math.cos(a) * spread, y, cz + Math.sin(a) * spread, long ? 1.5 : 0.7, 0.35, long ? 0.7 : 1.5, [0x4f8a44, 0x67a052, 0x3f7a3a, 0x7bb35e][i % 4], 0.14);
     }
+    walls.capsule(cx, 7, cz, cx, 7 + h * 0.8, cz, 0.35, 0.2, 0x5a4a2a);
   };
   plant(-46, -34, 18); plant(44, -34, 24);
 
@@ -145,96 +139,25 @@ export function buildWorld(scene: THREE.Scene, lo: number, hi: number) {
   scene.add(lampMesh);
   const lampLight = new THREE.PointLight(0xffc880, 0.9, 6, 1.6); lampLight.position.copy(v3(TX + 5, 26, TZ + 4)); scene.add(lampLight);
 
-  const wallMesh = walls.build([0, 0, 0]); scene.add(wallMesh);
 
   // 창밖 풍경 + 글로우
   const sky = new THREE.Mesh(new THREE.PlaneGeometry(30 * VS, 44 * VS), new THREE.MeshBasicMaterial({ map: skyTexture(), toneMapped: false }));
   sky.position.set(2 * VS, 37 * VS, (RZ0 - 1.9) * VS); scene.add(sky);
 
-  // ─── 그랜드 피아노
-  const whites: number[] = [];
-  for (let m = lo; m <= hi; m++) if (!isBlack(m)) whites.push(m);
-  const W = whites.length;
-  const wIdx = new Map(whites.map((m, i) => [m, i]));
-  const keyZ = (m: number) => {
-    if (!isBlack(m)) return W / 2 - (wIdx.get(m)! + 0.5);
-    return W / 2 - (wIdx.get(m - 1)! + 1);
-  };
-  const half = Math.ceil(W / 2) + 2;
-  const KEYX = -5, KEYY = 17.3;
-  const black = 0x2a2a36, blackTop = 0x3c3c4c;
-  const edgeZ = (x: number) => {
-    const t = Math.min(1, Math.max(0, (KEYX - x) / 25));
-    const u = Math.min(1, Math.max(0, (t - 0.22) / 0.78));
-    return -half + W * 0.62 * (1 - Math.cos(u * Math.PI / 2)) + (t > 0.94 ? (t - 0.94) * 60 : 0);
-  };
-  // 본체
-  for (let x = -31; x < KEYX; x++) {
-    const zmin = Math.ceil(edgeZ(x)), zmax = half;
-    bodies.box(x, 14, zmin, x + 1, 20, zmax, black, 0.02);
-    bodies.box(x, 20, zmin - 0, x + 1, 21, zmax, blackTop, 0.015);
-    bodies.clear(x, 14, zmin + 1, x + 1, 19, zmax - 1); // 속 비움(얇은 케이스)
-    bodies.box(x, 14, zmin + 1, x + 1, 15, zmax - 1, 0x141419);
+  // 창턱의 꽃병
+  {
+    const vx = 9, vz = -39;
+    walls.capsule(vx + 1.5, 16, vz + 1.5, vx + 1.5, 21, vz + 1.5, 1.6, 1.9, 0xbcdde6, 0.03);
+    walls.capsule(vx + 1.5, 21, vz + 1.5, vx + 1.5, 23.5, vz + 1.5, 0.9, 0.9, 0xbcdde6, 0.03);
+    walls.capsule(vx + 1.5, 23, vz + 1.5, vx + 1.5, 27, vz + 1.5, 0.15, 0.15, 0x4f8a44);
+    for (let i = 0; i < 26; i++) {
+      const a = rnd() * 6.28, r = rnd() * 3.0, c = [0xf27d9c, 0xffffff, 0xffd35a, 0xf7a3c4][i % 4], y = 25 + rnd() * 4.5;
+      walls.ellipsoid(vx + 1.5 + Math.cos(a) * r, y, vz + 1.5 + Math.sin(a) * r, 0.7, 0.6, 0.7, c, 0.1);
+    }
   }
-  // 열린 뚜껑 느낌: 상판 둥근 모서리
-  // 건반 하부/치크블록/폴보드
-  bodies.box(-6, 14, -half + 1, 1, 17, half - 1, 0x3a2418, 0.03);
-  bodies.box(-6, 14, -half, 2, 20, -half + 2, black, 0.02); bodies.box(-6, 14, half - 2, 2, 20, half, black, 0.02);
-  bodies.box(-8, 17, -half + 2, KEYX + 0.0, 21, half - 2, black, 0.02);
-  bodies.box(-6, 14, -half, 2, 15, half, 0x241812);
-  // 다리 & 페달 리라
-  const leg = (x: number, z: number) => { bodies.box(x, 1, z, x + 3, 14, z + 3, black, 0.02); bodies.box(x - 1, 0, z - 1, x + 4, 1, z + 4, 0x3a3a46); bodies.box(x - 1, 12, z - 1, x + 4, 14, z + 4, blackTop); };
-  leg(-6, -half + 1); leg(-6, half - 4); leg(-29, -2);
-  bodies.box(-4, 5, -1, -2, 14, 1, black); bodies.box(-5, 3, -3, -1, 5, 3, 0x2a2a34);
-  for (const z of [-2, 0, 1]) bodies.box(-3, 2, z, -1, 3, z + 1, 0xd6ad4c);
-  // 벤치
-  const bx0 = 5, bx1 = 13;
-  bodies.box(bx0, 7, -9, bx1, 9, 9, 0x6b2f4a, 0.04); bodies.box(bx0, 5, -9, bx1, 7, 9, 0x4a2a1c);
-  for (const [x, z] of [[bx0, -9], [bx1 - 2, -9], [bx0, 7], [bx1 - 2, 7]]) bodies.box(x, 0, z, x + 2, 5, z + 2, 0x4a2a1c);
-  // 꽃병과 사진 액자 (피아노 위)
-  const vx = 9, vz = -39;
-  bodies.box(vx, 16, vz, vx + 3, 22, vz + 3, 0xbcdde6, 0.03); bodies.box(vx + 1, 22, vz + 1, vx + 2, 23, vz + 2, 0xbcdde6);
-  for (let i = 0; i < 22; i++) {
-    const a = rnd() * 6.28, r = rnd() * 3.2, c = [0xf27d9c, 0xffffff, 0xffd35a, 0xf7a3c4][i % 4];
-    bodies.box(vx + 1 + Math.cos(a) * r, 23 + rnd() * 5, vz + 1 + Math.sin(a) * r, vx + 2 + Math.cos(a) * r + 1, 24 + rnd() * 5, vz + 2 + Math.sin(a) * r + 1, c, 0.08);
-  }
-  bodies.box(vx + 1, 23, vz + 1, vx + 2, 26, vz + 2, 0x4f8a44);
-  const px = -10, pz = -11;
-  bodies.box(px, 21, pz, px + 2, 27, pz + 6, 0xc9a24a); bodies.box(px, 22, pz + 1, px + 1, 26, pz + 5, 0xf3d6c4);
-  bodies.set(px, 24, pz + 2, 0x8a5a3a); bodies.set(px, 24, pz + 3, 0x8a5a3a); bodies.set(px, 25, pz + 2, 0x8a5a3a);
-  bodies.box(px, 22, pz + 4, px + 1, 23, pz + 5, 0xd9503a);
-  // 악보대
-  bodies.box(-8, 21, -3, -7, 23, 3, 0x3a2418);
-
-  const pianoMesh = bodies.build([0, 0, 0]);
-  scene.add(pianoMesh);
-  const score = new THREE.Mesh(new THREE.PlaneGeometry(10 * VS, 6.5 * VS), new THREE.MeshLambertMaterial({ map: scoreTexture(), side: THREE.DoubleSide }));
-  score.position.set(-7.6 * VS, 26 * VS, 0); score.rotation.set(0, Math.PI / 2, 0); score.rotation.order = 'YXZ'; score.rotateX(-0.22);
-  score.castShadow = true; scene.add(score);
-
-  // 건반 (개별 메시)
-  const keys = new Map<number, KeyObj>();
-  const wMat = 0xf7f1e2, bMat = 0x14141a;
-  for (let m = lo; m <= hi; m++) {
-    const blk = isBlack(m);
-    const len = blk ? 3.2 : 5.2, h = blk ? 1.7 : 1.4, wdt = blk ? 0.62 : 0.92;
-    const pivot = new THREE.Group();
-    const y = blk ? 18.75 : KEYY;
-    pivot.position.set(KEYX * VS, y * VS, keyZ(m) * VS);
-    const mat = new THREE.MeshLambertMaterial({ color: blk ? bMat : wMat });
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(len * VS, h * VS, wdt * VS), mat);
-    mesh.position.set((len / 2) * VS, 0, 0); mesh.castShadow = true; mesh.receiveShadow = true;
-    pivot.add(mesh); scene.add(pivot);
-    keys.set(m, { pivot, mesh, black: blk, z: keyZ(m), press: 0 });
-  }
-  const info: PianoInfo = { keys, W, keyZ, edgeZ, seat: v3(9, 13, 0) };
+  const piano = buildPiano(scene, lo, hi);
+  const info = piano;
+  const wallMesh = walls.build([0, 0, 0]); scene.add(wallMesh);
   return { piano: info, lampLight, wallMesh };
 }
 
-export function setKeyLook(k: KeyObj, press: number) {
-  k.press = press;
-  k.pivot.rotation.z = -press * 0.075;
-  const m = k.mesh.material as THREE.MeshLambertMaterial;
-  if (k.black) m.emissive.setRGB(press * 0.55, press * 0.28, press * 0.1);
-  else m.emissive.setRGB(press * 0.5, press * 0.32, press * 0.08);
-}
