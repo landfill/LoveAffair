@@ -27,6 +27,36 @@ export function extractHum(song: Song): HumNote[] {
   return out;
 }
 
+
+/** 허밍 보이스: 두 톱니파(+사인 바디) + 비브라토 → 비음 포먼트(mm/oo) → 메이크업 게인. 출력 크기는 HUM_LEVEL로 조절 */
+export const HUM_LEVEL = 0.06;
+export function makeHum(ctx: BaseAudioContext, dest: AudioNode) {
+  const osc = ctx.createOscillator(); osc.type = 'sawtooth'; osc.frequency.value = 220;
+  const osc2 = ctx.createOscillator(); osc2.type = 'sawtooth'; osc2.frequency.value = 220; osc2.detune.value = 9;
+  const body = ctx.createOscillator(); body.type = 'sine'; body.frequency.value = 220;
+  const lfo = ctx.createOscillator(); lfo.frequency.value = 5.3;
+  const lfoG = ctx.createGain(); lfoG.gain.value = 16;              // 비브라토 ±16센트
+  lfo.connect(lfoG); lfoG.connect(osc.detune); lfoG.connect(osc2.detune); lfoG.connect(body.detune);
+  const src = ctx.createGain(); src.gain.value = 1;
+  osc.connect(src); osc2.connect(src);
+  const bodyG = ctx.createGain(); bodyG.gain.value = 0.9; body.connect(bodyG);
+  const sum = ctx.createGain(); sum.gain.value = 1;
+  bodyG.connect(sum);
+  for (const [f, q, g] of [[300, 3.5, 5.5], [1000, 4, 3.0], [2500, 5, 1.6]] as const) {
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f; bp.Q.value = q;
+    const gg = ctx.createGain(); gg.gain.value = g;
+    src.connect(bp); bp.connect(gg); gg.connect(sum);
+  }
+  const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 3600;
+  const gain = ctx.createGain(); gain.gain.value = 0;
+  sum.connect(lp); lp.connect(gain); gain.connect(dest);
+  for (const o of [osc, osc2, body]) { o.start(); }
+  lfo.start();
+  // osc2·body는 osc의 주파수를 따라가도록 연결
+  const freq = ctx.createGain(); freq.gain.value = 1;
+  return { osc, osc2, body, gain, setFreq(f: number, t: number, tc: number) { for (const o of [osc, osc2, body]) o.frequency.setTargetAtTime(f, t, tc); }, freq };
+}
+
 export class Player {
   ctx: AudioContext;
   private master: GainNode;
@@ -34,6 +64,7 @@ export class Player {
   private wet: GainNode;
   private humBus: GainNode;
   private humOsc!: OscillatorNode;
+  private hum2!: ReturnType<typeof makeHum>;
   private humGain!: GainNode;
   private voices: { g: GainNode; end: number }[] = [];
   private idx = 0;
@@ -81,23 +112,9 @@ export class Player {
     return b;
   }
 
-  /** 허밍 보이스: 톱니파 + 비브라토 → 비음(mm) 포먼트 필터 */
   private buildHum() {
-    const c = this.ctx;
-    this.humOsc = c.createOscillator(); this.humOsc.type = 'sawtooth'; this.humOsc.frequency.value = 220;
-    const lfo = c.createOscillator(); lfo.frequency.value = 5.3;
-    const lfoG = c.createGain(); lfoG.gain.value = 3.5;
-    lfo.connect(lfoG); lfoG.connect(this.humOsc.frequency);
-    this.humGain = c.createGain(); this.humGain.gain.value = 0;
-    const sum = c.createGain(); sum.gain.value = 1;
-    for (const [f, q, g] of [[270, 5, 1.0], [1150, 9, 0.28], [2500, 10, 0.1]] as const) {
-      const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f; bp.Q.value = q;
-      const gg = c.createGain(); gg.gain.value = g;
-      this.humOsc.connect(bp); bp.connect(gg); gg.connect(sum);
-    }
-    const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 3000;
-    sum.connect(lp); lp.connect(this.humGain); this.humGain.connect(this.humBus);
-    this.humOsc.start(); lfo.start();
+    const h = this.hum2 = makeHum(this.ctx, this.humBus);
+    this.humOsc = h.osc; this.humGain = h.gain;
   }
 
   private piano(n: Note, when: number) {
@@ -149,10 +166,10 @@ export class Player {
       const h = H[this.hidx++];
       const when = this.startCtx + h.time;
       if (when < c.currentTime - 0.02) continue;
-      const intro = Math.min(1, 0.35 + h.time / 10);
-      const lvl = 0.085 * intro;
+      const intro = Math.min(1, 0.7 + h.time / 20);
+      const lvl = HUM_LEVEL * intro;
       const w = Math.max(when, c.currentTime);
-      this.humOsc.frequency.setTargetAtTime(mtof(h.midi), w, 0.035);
+      this.hum2.setFreq(mtof(h.midi), w, 0.035);
       this.humGain.gain.cancelScheduledValues(w);
       this.humGain.gain.setTargetAtTime(lvl, w, 0.05);
       this.humGain.gain.setTargetAtTime(0, w + Math.max(0.05, h.dur - 0.06), 0.06);
