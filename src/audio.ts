@@ -1,5 +1,5 @@
 import type { Note, Song } from './midi';
-import { HumVoice } from './voice';
+import { HumVoice, type Voice } from './voice';
 
 const mtof = (m: number) => 440 * Math.pow(2, (m - 69) / 12);
 
@@ -32,7 +32,7 @@ export function extractHum(song: Song): HumNote[] {
     .map(h => ({ ...h, dur: Math.min(h.dur, HUM_END - h.time) }));
 }
 
-export const HUM_LEVEL = 0.04;
+export const HUM_LEVEL = 0.06;
 
 export class Player {
   ctx: AudioContext;
@@ -40,7 +40,8 @@ export class Player {
   private dry: GainNode;
   private wet: GainNode;
   private humBus: GainNode;
-  private voice!: HumVoice;
+  private voice: Voice | null = null;
+  private voiceReady!: Promise<void>;
   private voices: { g: GainNode; end: number }[] = [];
   private idx = 0;
   private hidx = 0;
@@ -89,7 +90,7 @@ export class Player {
     return b;
   }
 
-  private buildHum() { this.voice = new HumVoice(this.ctx, this.humBus, HUM_LEVEL); }
+  private buildHum() { this.voiceReady = HumVoice.create(this.ctx, this.humBus, HUM_LEVEL).then(v => { this.voice = v; }); }
 
   private piano(n: Note, when: number) {
     const c = this.ctx, f = mtof(n.midi);
@@ -141,7 +142,7 @@ export class Player {
       const when = this.startCtx + h.time;
       if (when < c.currentTime - 0.02) continue;
       const fade = Math.min(1, Math.max(0.3, (h.time - HUM_START) / 3), Math.max(0.3, (HUM_END - h.time) / 3));
-      this.voice.noteOn({ ...h, vel: h.vel * fade }, Math.max(when, c.currentTime));
+      this.voice?.noteOn({ ...h, vel: h.vel * fade }, Math.max(when, c.currentTime));
     }
     this.voices = this.voices.filter(v => v.end > c.currentTime);
     if (t > this.song.duration + 2.5) { this.pause(true); this.onEnd(); }
@@ -151,6 +152,7 @@ export class Player {
 
   async play() {
     await this.ctx.resume();
+    await this.voiceReady;
     if (this.playing) return;
     if (this.offset >= this.song.duration + 1) this.offset = 0;
     this.startCtx = this.ctx.currentTime + 0.12 - this.offset;
@@ -180,7 +182,7 @@ export class Player {
     const now = this.ctx.currentTime;
     for (const v of this.voices) { v.g.gain.cancelScheduledValues(now); v.g.gain.setTargetAtTime(0, now, 0.03); }
     this.voices = [];
-    this.voice.silence(now);
+    this.voice?.silence(now);
   }
   setHum(on: boolean) { this.humOn = on; this.humBus.gain.setTargetAtTime(on ? 1 : 0, this.ctx.currentTime, 0.05); }
   setVolume(v: number) { this.master.gain.setTargetAtTime(v, this.ctx.currentTime, 0.02); }
