@@ -30,11 +30,11 @@ export class HumVoice {
     const lfo = c.createOscillator(); lfo.frequency.value = 5.4;
     this.vibDepth = c.createGain(); this.vibDepth.gain.value = 0;
     lfo.connect(this.vibDepth); this.vibDepth.connect(this.osc.detune);
-    const trem = c.createGain(); trem.gain.value = 0.07; lfo.connect(trem);
+    const trem = c.createGain(); trem.gain.value = 0.03; lfo.connect(trem);
     const jitBuf = c.createBuffer(1, c.sampleRate * 4, c.sampleRate);
     { const d = jitBuf.getChannelData(0); let v = 0; for (let i = 0; i < d.length; i++) { v += (Math.random() * 2 - 1 - v) * 0.0009; d[i] = v; } let mx = 0; for (const x of d) mx = Math.max(mx, Math.abs(x)); for (let i = 0; i < d.length; i++) d[i] = d[i] / (mx || 1); }
     const jit = c.createBufferSource(); jit.buffer = jitBuf; jit.loop = true;
-    const jitG = c.createGain(); jitG.gain.value = 9;                       // ±9센트
+    const jitG = c.createGain(); jitG.gain.value = 4;                       // ±4센트
     jit.connect(jitG); jitG.connect(this.osc.detune);
 
     // 성도 (mm)
@@ -49,8 +49,9 @@ export class HumVoice {
     src.connect(lp0); lp0.connect(this.f1); this.f1.connect(nn); nn.connect(f2); f2.connect(f3); f3.connect(lp1);
 
     this.amp = c.createGain(); this.amp.gain.value = 0;
-    trem.connect(this.amp.gain);
     lp1.connect(this.amp);
+    const tg = c.createGain(); tg.gain.value = 1;                    // 트레몰로는 곱셈(무음일 때 새지 않게)
+    trem.connect(tg.gain); this.amp.connect(tg);
 
     // 숨소리
     const nb = c.createBuffer(1, c.sampleRate * 2, c.sampleRate);
@@ -61,14 +62,14 @@ export class HumVoice {
     ns.connect(nbp); nbp.connect(this.breath);
 
     const out = c.createGain(); out.gain.value = 1;
-    this.amp.connect(out); this.breath.connect(out); out.connect(dest);
+    tg.connect(out); this.breath.connect(out); out.connect(dest);
     this.osc.start(); lfo.start(); jit.start(); ns.start();
   }
 
   noteOn(n: VoiceNote, when: number) {
     const p = this.osc.frequency, a = this.amp.gain, vd = this.vibDepth.gain, br = this.breath.gain;
     const f = mtof(n.midi), end = when + n.dur;
-    const lvl = this.level * (0.65 + 0.35 * n.vel / 127);
+    const lvl = this.level * (0.6 + 0.4 * Math.min(1, n.vel / 127));
     const legato = when - this.lastEnd < 0.14 && this.lastEnd > 0;
     p.cancelScheduledValues(when); a.cancelScheduledValues(when); vd.cancelScheduledValues(when); br.cancelScheduledValues(when);
     this.f1.frequency.setTargetAtTime(Math.min(520, Math.max(270, f * 0.92)), when, 0.05);   // 소프라노처럼 F1을 음정에 맞춤
@@ -77,12 +78,12 @@ export class HumVoice {
       a.setTargetAtTime(lvl * 0.6, when - 0.02, 0.025);                                     // 같은 음 반복 시 살짝 끊김
       a.setTargetAtTime(lvl, when + 0.05, 0.06);
     } else {
-      p.setValueAtTime(f * Math.pow(2, -0.45 / 12), when); p.setTargetAtTime(f, when, 0.07);    // 아래에서 스쿱
+      p.setValueAtTime(f * Math.pow(2, -0.18 / 12), when); p.setTargetAtTime(f, when, 0.07);    // 아래에서 스쿱
       a.setTargetAtTime(lvl, when, 0.07);                                                   // 부드러운 어택
       vd.setTargetAtTime(0, when, 0.03);
     }
-    vd.setTargetAtTime(24, when + 0.22, 0.28);                                              // 비브라토는 늦게 붙는다
-    br.setTargetAtTime(lvl * 0.16, when, 0.05);
+    vd.setTargetAtTime(10, when + 0.25, 0.3);                                              // 비브라토는 늦게 붙는다
+    br.setTargetAtTime(lvl * 0.07, when, 0.05);
     if (n.dur > 1.0) p.setTargetAtTime(f * 0.992, when + n.dur * 0.72, 0.35);                // 긴 음 끝에서 살짝 내려앉음
     a.setTargetAtTime(0, end - 0.02, 0.09); br.setTargetAtTime(0, end - 0.02, 0.06);
     this.lastEnd = end; this.lastMidi = n.midi;

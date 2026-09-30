@@ -4,6 +4,8 @@ import { HumVoice } from './voice';
 const mtof = (m: number) => 440 * Math.pow(2, (m - 69) / 12);
 
 export interface HumNote { time: number; dur: number; midi: number; vel: number; }
+/** 허밍이 나오는 구간(초): 0:50 ~ 1:15 */
+export const HUM_START = 50, HUM_END = 75;
 
 /** MIDI 오른손 성부의 최상성(멜로디)을 뽑아 테리가 부르기 편한 음역(G3~G5)으로 옮긴다 */
 export function extractHum(song: Song): HumNote[] {
@@ -25,10 +27,12 @@ export function extractHum(song: Song): HumNote[] {
     const end = Math.min(n.time + n.dur, next ? next.time - 0.03 : Infinity);
     if (end - n.time > 0.1) out.push({ time: n.time, dur: end - n.time, midi: m, vel: n.vel });
   }
-  return out;
+  return out
+    .filter(h => h.time >= HUM_START && h.time < HUM_END)
+    .map(h => ({ ...h, dur: Math.min(h.dur, HUM_END - h.time) }));
 }
 
-export const HUM_LEVEL = 0.05;
+export const HUM_LEVEL = 0.04;
 
 export class Player {
   ctx: AudioContext;
@@ -62,7 +66,9 @@ export class Player {
     const conv = c.createConvolver(); conv.buffer = this.impulse(2.6, 2.2);
     this.dry.connect(warm); this.dry.connect(conv); conv.connect(this.wet); this.wet.connect(warm);
     warm.connect(comp); comp.connect(this.master); this.master.connect(c.destination);
-    this.humBus = c.createGain(); this.humBus.gain.value = 1; this.humBus.connect(this.dry);
+    this.humBus = c.createGain(); this.humBus.gain.value = 1;
+    const humWet = c.createGain(); humWet.gain.value = 0.35;             // 허밍은 리버브를 적게
+    this.humBus.connect(warm); this.humBus.connect(humWet); humWet.connect(conv);
     this.noise = this.makeNoise();
     this.hum = extractHum(song);
     this.buildHum();
@@ -134,7 +140,8 @@ export class Player {
       const h = H[this.hidx++];
       const when = this.startCtx + h.time;
       if (when < c.currentTime - 0.02) continue;
-      this.voice.noteOn({ ...h, time: h.time }, Math.max(when, c.currentTime));
+      const fade = Math.min(1, Math.max(0.3, (h.time - HUM_START) / 3), Math.max(0.3, (HUM_END - h.time) / 3));
+      this.voice.noteOn({ ...h, vel: h.vel * fade }, Math.max(when, c.currentTime));
     }
     this.voices = this.voices.filter(v => v.end > c.currentTime);
     if (t > this.song.duration + 2.5) { this.pause(true); this.onEnd(); }
