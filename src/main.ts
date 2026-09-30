@@ -1,10 +1,12 @@
 import * as THREE from 'three';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import './style.css';
 import midiData from './assets/loveaffair.mid?inline';
 import { loadMidi, type Song } from './midi';
 import { Player } from './audio';
 import { VS } from './voxel';
 import { buildWorld, setKeyLook, SUN_DIR, RZ0 } from './world';
+import { KEYTOP } from './piano';
 import { Human } from './human';
 import { sunShafts, dust, noteEmitter } from './fx';
 import { drawHeart, pixelText, textWidth } from './pixel';
@@ -28,9 +30,10 @@ renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadow
 renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x120a07);
+{ const pm = new THREE.PMREMGenerator(renderer); scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture; scene.environmentIntensity = 0.28; }
 const camera = new THREE.PerspectiveCamera(36, 1, 0.05, 60);
 
-let pixelScale = 2;
+let pixelScale = 1;
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
   const ps = pixelScale > 1 ? Math.max(1.5, pixelScale * (h < 500 ? 0.6 : 1)) : 1;
@@ -55,11 +58,11 @@ const fill = new THREE.DirectionalLight(0xb9c8ff, 0.25); fill.position.set(-3, 4
 
 // ───────── 카메라 샷
 const SHOTS: Record<string, { p: THREE.Vector3; t: THREE.Vector3 }> = {
-  wide: { p: V(-6.2, 6.6, 11.2), t: V(0.4, 2.6, -1.2) },
-  ginny: { p: V(-3.4, 4.1, 3.4), t: V(0.9, 2.5, 0.1) },
-  terry: { p: V(-0.6, 4.6, 0.6), t: V(-1.7, 3.2, -2.5) },
-  mike: { p: V(0.3, 4.6, 3.6), t: V(3.6, 3.0, 0.3) },
-  keys: { p: V(-1.6, 4.6, 2.4), t: V(0.0, 2.0, 0.0) },
+  wide: { p: V(-4.2, 5.4, 9.4), t: V(0.9, 2.7, -0.6) },
+  ginny: { p: V(-1.6, 3.6, 2.5), t: V(1.05, 2.85, 0.0) },
+  terry: { p: V(0.2, 4.3, 1.4), t: V(-1.6, 3.5, -1.9) },
+  mike: { p: V(1.4, 4.5, 3.4), t: V(3.6, 3.9, 0.3) },
+  keys: { p: V(-1.6, 4.3, 2.1), t: V(0.2, 2.3, 0.0) },
 };
 const shotKeys = Object.keys(SHOTS);
 let shot = 'wide';
@@ -101,14 +104,14 @@ const CAPTIONS: [number, string][] = [
 function build() {
   world = buildWorld(scene, song.lo, song.hi);
   const p = world.piano;
-  ginny = new Human({ skin: 0xf2cfae, hair: 0xf0eee8, top: 0x9fb8b0, bottom: 0x6f6a78, shoe: 0x3a2a24, lips: 0xc46a6a, hairStyle: 'bun', seated: true, pearls: true, smile: 0.9, wrinkles: true, cuff: 0xf8f2e4 }, scene);
-  ginny.root.position.set(9 * VS, 0, 0); ginny.root.rotation.y = -Math.PI / 2;
+  ginny = new Human({ scale: 0.9, female: true, old: true, skin: 0xf1d3b8, hair: 0xeeeae4, hairStyle: 'bun', eye: 0x5f8a8a, lips: 0xc27a76, outfit: 'cardigan', top: 0x9db8ae, under: 0xf6f0e4, bottom: 0x6d6a78, shoe: 0x3a2a24, seated: true, smile: 0.7, pearls: true }, scene);
+  ginny.root.position.set(11 * VS, 0, 0); ginny.root.rotation.y = -Math.PI / 2;
 
-  terry = new Human({ skin: 0xf6d5b8, hair: 0xd9a55b, top: 0xf3e7cf, bottom: 0x8b6a4a, shoe: 0x4a3226, lips: 0xd0566a, hairStyle: 'long', smile: 0.6, cuff: 0xf3e7cf }, scene);
-  const tx = -17, tz = p.edgeZ(tx) - 7.5;
+  terry = new Human({ scale: 0.9, female: true, skin: 0xf6d9c2, hair: 0xd8a860, hairStyle: 'long', eye: 0x5a86a0, lips: 0xc8556a, outfit: 'blouse', top: 0xf3e8d2, under: 0xf3e8d2, bottom: 0x8b6a4a, shoe: 0x4a3226, smile: 0.5 }, scene);
+  const tx = -17, tz = p.edgeZ(tx) - 9;
   terry.root.position.set(tx * VS, 0, tz * VS); terry.root.rotation.y = 0.5;
 
-  mike = new Human({ skin: 0xe8b98f, hair: 0x4a3222, top: 0x2c3a5c, bottom: 0x2c3a5c, shoe: 0x1e1a1a, lips: 0xb8655a, hairStyle: 'swept', jacket: true, shirt: 0xf6f3ec, smile: 0.7, cuff: 0xf6f3ec }, scene);
+  mike = new Human({ scale: 0.98, female: false, skin: 0xe6b992, hair: 0x4a3222, hairStyle: 'swept', eye: 0x5a3a24, lips: 0xb0655a, outfit: 'suit', top: 0x2b3a5c, under: 0xf6f3ec, bottom: 0x2b3a5c, shoe: 0x1e1a1a, smile: 0.5 }, scene);
   mike.root.position.set(36 * VS, 0, 3 * VS); mike.root.rotation.y = -1.75;
   mike.root.traverse(o => { (o as THREE.Mesh).castShadow = true; });
 }
@@ -148,12 +151,11 @@ function animate(t: number, dt: number) {
   g.root.updateMatrixWorld(true);
   const hand = (side: 'R' | 'L', z: number, press: number) => {
     const black = false; void black;
-    return V(-1.8 * VS, (19.6 - press * 0.9) * VS, z * VS);
+    return V(-2.2 * VS, (KEYTOP + 0.5 - press * 0.7) * VS, z * VS);
   };
   g.reach(g.arms[0], hand('R', handFocus.R, handPress.R), V(0.4, -0.7, -1));
   g.reach(g.arms[1], hand('L', handFocus.L, handPress.L), V(0.4, -0.7, 1));
-  g.blink(dt, t);
-  g.mouth.scale.set(1, 1, 1);
+  g.blink(dt);
 
   // 테리: 기대어 허밍
   const r = terry;
@@ -164,27 +166,27 @@ function animate(t: number, dt: number) {
   r.head.rotation.x = -0.16 + hummingAmt * Math.sin(t * 5) * 0.015;
   r.head.rotation.y = 0.42 + Math.sin(t * 0.5) * 0.06;
   r.head.rotation.z = -0.1 + Math.sin(t * 1.15) * 0.07 * (0.4 + hummingAmt);
-  r.mouth.scale.set(1 - hummingAmt * 0.35, 0.7 + hummingAmt * (0.5 + 0.3 * Math.sin(t * 6)), 1);
+  r.mouth.visible = hummingAmt > 0.25; r.mouth.scale.set(0.75, 1 + 0.5 * Math.sin(t * 6), 1);
   r.root.updateMatrixWorld(true);
-  const chin = r.headWorld(-4.2, 1.5, 4);
+  const chin = r.headWorld(-2.7, 1.2, 3.1);
   r.reach(r.arms[0], chin, V(-0.6, -1, -0.2));
   const elbow = r.arms[0].fore.position.clone();
   r.reach(r.arms[1], elbow.add(V(0.02, 0.02, 0.03)), V(0.6, -1, 0));
-  r.blink(dt, t);
+  r.blink(dt);
 
   // 마이크: 조용히 바라봄
   const m = mike;
   m.hip.rotation.z = Math.sin(t * 0.7) * 0.015; m.hip.position.y = (m.hipY + Math.sin(t * 1.4) * 0.12) * VS;
   m.head.rotation.y = 0.0 + Math.sin(t * 0.25) * 0.32; m.head.rotation.x = 0.04; m.head.rotation.z = Math.sin(t * 0.4) * 0.04;
   m.root.updateMatrixWorld(true);
-  m.reach(m.arms[0], m.hipLocal(-5.5, 7.5, 1.5), V(-1, -0.3, -0.5));
-  m.reach(m.arms[1], m.hipLocal(5.5, 7.5, 1.5), V(1, -0.3, -0.5));
-  m.blink(dt, t);
+  m.reach(m.arms[0], m.hipLocal(-5.6, 0.5, 2.0), V(-1, -0.3, -0.5));
+  m.reach(m.arms[1], m.hipLocal(5.6, 0.5, 2.0), V(1, -0.3, -0.5));
+  m.blink(dt);
 
   // 허밍 → 음표 스프라이트
-  if (player.playing) for (const h of player.hum) if (h.time > lastT && h.time <= T && player.humOn) notes.emit(r.headWorld(0, 3, 7), h.midi % 4);
+  if (player.playing) for (const h of player.hum) if (h.time > lastT && h.time <= T && player.humOn) notes.emit(r.headWorld(3.2, 2.2, 2.2), h.midi % 4);
   // 피아노 멜로디 반짝임
-  if (player.playing) for (const n of song.notes) { if (n.hand === 'R' && n.time > lastT && n.time <= T && n.vel > 90 && Math.random() < 0.35) notes.emit(V(p.keyZ(n.midi) * 0 - 0.2, 2.3, p.keyZ(n.midi) * VS), 1); }
+  if (player.playing) for (const n of song.notes) { if (n.hand === 'R' && n.time > lastT && n.time <= T && n.vel > 90 && Math.random() < 0.35) notes.emit(V(-0.2, 2.5, p.keyZ(n.midi) * VS), 1); }
   lastT = T;
   notes.update(dt); shafts.update(t); motes.update(t);
   (world.lampLight as THREE.PointLight).intensity = 0.9 + Math.sin(t * 3.1) * 0.03;
@@ -221,7 +223,7 @@ async function boot() {
     document.querySelectorAll('.bar').forEach(b => ((b as HTMLElement).style.height = '7vh'));
   };
   btn.onclick = start;
-  const sh = params.get('shot'); if (sh && SHOTS[sh]) setShot(sh);
+  const sh = params.get('shot'); if (sh && SHOTS[sh]) { setShot(sh); camPos.copy(SHOTS[sh].p); camTgt.copy(SHOTS[sh].t); }
   if (params.has('auto')) { player = new Player(song); const t0 = parseFloat(params.get('t') ?? '0'); player.seek(t0); $('start').classList.add('gone'); $('hud').classList.remove('hidden'); void player.play(); }
   else { player = new Player(song); player.onEnd = () => {}; }
   (window as any).__app = { get player() { return player; }, setShot, song };
