@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>러브 어페어 · 복셀 헌정</title>
+<meta name="description" content="영화 〈러브 어페어〉의 피아노 장면을 코드로만 빚은 복셀 3D 헌정 웹앱" />
+<link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div class="vignette"></div>
+<div class="bar top"></div><div class="bar bottom"></div>
+<div id="caption"></div>
+<div id="credit">A VOXEL TRIBUTE</div>
+
+<div id="hud" class="hidden">
+  <div class="row">
+    <button id="bPlay" title="재생/일시정지 (Space)">⏸</button>
+    <button id="bRestart" title="처음부터">⏮</button>
+    <span id="tCur">0:00</span>
+    <input id="seek" type="range" min="0" max="1000" value="0" />
+    <span id="tDur">0:00</span>
+    <input id="vol" type="range" min="0" max="100" value="80" title="볼륨" />
+  </div>
+  <div class="row opts">
+    <span class="grp" id="shots">
+      <button data-shot="wide" class="on">전경</button><button data-shot="ginny">지니</button><button data-shot="terry">테리</button><button data-shot="mike">마이크</button><button data-shot="keys">건반</button>
+    </span>
+    <span class="grp">
+      <button id="bHum" class="tog on">테리 허밍</button><button id="bLoop" class="tog on">반복</button><button id="bPix" class="tog on">픽셀</button>
+    </span>
+  </div>
+</div>
+
+<div id="start">
+  <canvas id="title"></canvas>
+  <p class="lead">햇살이 스며드는 방, 지니의 피아노와 테리의 허밍,<br />그리고 말없이 지켜보는 마이크.</p>
+  <button id="go" disabled>불러오는 중…</button>
+  <p class="hint">🎧 소리가 나옵니다 · 드래그로 회전 · 휠로 확대 · 1~5 시점 전환 · Space 재생/정지</p>
+  <p class="fine">영화 〈러브 어페어〉(1994)에 바치는 비영리 팬 오마주입니다.<br />모든 비주얼과 사운드는 코드로 생성되며, 피아노 연주는 제공된 MIDI를 따릅니다.</p>
+</div>
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>
