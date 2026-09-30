@@ -1,8 +1,9 @@
 import type { Note, Song } from './midi';
+import { HumVoice } from './voice';
 
 const mtof = (m: number) => 440 * Math.pow(2, (m - 69) / 12);
 
-export interface HumNote { time: number; dur: number; midi: number; }
+export interface HumNote { time: number; dur: number; midi: number; vel: number; }
 
 /** MIDI 오른손 성부의 최상성(멜로디)을 뽑아 테리가 부르기 편한 음역(G3~G5)으로 옮긴다 */
 export function extractHum(song: Song): HumNote[] {
@@ -22,10 +23,12 @@ export function extractHum(song: Song): HumNote[] {
     while (m < 55) m += 12;
     const next = top[i + 1];
     const end = Math.min(n.time + n.dur, next ? next.time - 0.03 : Infinity);
-    if (end - n.time > 0.1) out.push({ time: n.time, dur: end - n.time, midi: m });
+    if (end - n.time > 0.1) out.push({ time: n.time, dur: end - n.time, midi: m, vel: n.vel });
   }
   return out;
 }
+
+export const HUM_LEVEL = 0.05;
 
 export class Player {
   ctx: AudioContext;
@@ -33,8 +36,7 @@ export class Player {
   private dry: GainNode;
   private wet: GainNode;
   private humBus: GainNode;
-  private humOsc!: OscillatorNode;
-  private humGain!: GainNode;
+  private voice!: HumVoice;
   private voices: { g: GainNode; end: number }[] = [];
   private idx = 0;
   private hidx = 0;
@@ -81,24 +83,7 @@ export class Player {
     return b;
   }
 
-  /** 허밍 보이스: 톱니파 + 비브라토 → 비음(mm) 포먼트 필터 */
-  private buildHum() {
-    const c = this.ctx;
-    this.humOsc = c.createOscillator(); this.humOsc.type = 'sawtooth'; this.humOsc.frequency.value = 220;
-    const lfo = c.createOscillator(); lfo.frequency.value = 5.3;
-    const lfoG = c.createGain(); lfoG.gain.value = 3.5;
-    lfo.connect(lfoG); lfoG.connect(this.humOsc.frequency);
-    this.humGain = c.createGain(); this.humGain.gain.value = 0;
-    const sum = c.createGain(); sum.gain.value = 1;
-    for (const [f, q, g] of [[270, 5, 1.0], [1150, 9, 0.28], [2500, 10, 0.1]] as const) {
-      const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f; bp.Q.value = q;
-      const gg = c.createGain(); gg.gain.value = g;
-      this.humOsc.connect(bp); bp.connect(gg); gg.connect(sum);
-    }
-    const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 3000;
-    sum.connect(lp); lp.connect(this.humGain); this.humGain.connect(this.humBus);
-    this.humOsc.start(); lfo.start();
-  }
+  private buildHum() { this.voice = new HumVoice(this.ctx, this.humBus, HUM_LEVEL); }
 
   private piano(n: Note, when: number) {
     const c = this.ctx, f = mtof(n.midi);
@@ -149,13 +134,7 @@ export class Player {
       const h = H[this.hidx++];
       const when = this.startCtx + h.time;
       if (when < c.currentTime - 0.02) continue;
-      const intro = Math.min(1, 0.35 + h.time / 10);
-      const lvl = 0.085 * intro;
-      const w = Math.max(when, c.currentTime);
-      this.humOsc.frequency.setTargetAtTime(mtof(h.midi), w, 0.035);
-      this.humGain.gain.cancelScheduledValues(w);
-      this.humGain.gain.setTargetAtTime(lvl, w, 0.05);
-      this.humGain.gain.setTargetAtTime(0, w + Math.max(0.05, h.dur - 0.06), 0.06);
+      this.voice.noteOn({ ...h, time: h.time }, Math.max(when, c.currentTime));
     }
     this.voices = this.voices.filter(v => v.end > c.currentTime);
     if (t > this.song.duration + 2.5) { this.pause(true); this.onEnd(); }
@@ -194,7 +173,7 @@ export class Player {
     const now = this.ctx.currentTime;
     for (const v of this.voices) { v.g.gain.cancelScheduledValues(now); v.g.gain.setTargetAtTime(0, now, 0.03); }
     this.voices = [];
-    this.humGain.gain.cancelScheduledValues(now); this.humGain.gain.setTargetAtTime(0, now, 0.04);
+    this.voice.silence(now);
   }
   setHum(on: boolean) { this.humOn = on; this.humBus.gain.setTargetAtTime(on ? 1 : 0, this.ctx.currentTime, 0.05); }
   setVolume(v: number) { this.master.gain.setTargetAtTime(v, this.ctx.currentTime, 0.02); }
